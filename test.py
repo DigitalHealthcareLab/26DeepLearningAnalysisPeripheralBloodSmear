@@ -3,6 +3,7 @@ import json
 import os
 from functools import partial
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
@@ -14,7 +15,7 @@ from models.pbsmodel import PBSModel
 
 from dataset import PBSDSDataset, load_anno_df
 from collate import collate_fn
-from utils import set_seed, test_with_bootstrap, format_test_json
+from utils import set_seed, test_with_bootstrap, format_test_json, _collect_predictions
 
 
 def _build_loader(dataset, exp_cfg):
@@ -42,6 +43,7 @@ def main():
     config_path = os.path.join(log_dir, "config.yaml")
     best_ckpt_path = os.path.join(log_dir, "checkpoints", "best_model.pth")
     out_path = os.path.join(log_dir, "test_results.json")
+    pred_path = os.path.join(log_dir, "predictions.npz")
 
     exp_cfg = ExperimentConfig.load(config_path)
 
@@ -74,8 +76,8 @@ def main():
     test_dataset = PBSDSDataset(exp_cfg.data, test_df)
     test_h_dataset = PBSDSDataset(exp_cfg.data, test_h_df)
     eval_loaders = [
-        ("test", _build_loader(test_dataset, exp_cfg)),
-        ("test_h", _build_loader(test_h_dataset, exp_cfg)),
+        ("test", _build_loader(test_dataset, exp_cfg), test_df),
+        ("test_h", _build_loader(test_h_dataset, exp_cfg), test_h_df),
     ]
 
     encoder = PBSEncoder(exp_cfg.encoder).to(device)
@@ -99,7 +101,8 @@ def main():
     model.eval()
 
     combined_json = {"checkpoint_path": best_ckpt_path}
-    for name, loader in eval_loaders:
+    predictions = {}
+    for name, loader, df in eval_loaders:
         result = test_with_bootstrap(
             model=model,
             loader=loader,
@@ -111,8 +114,14 @@ def main():
         )
         combined_json[name] = format_test_json(result)
 
+        probs, labels, _ = _collect_predictions(model, loader, device, task)
+        predictions[f"{name}_probs"] = probs
+        predictions[f"{name}_labels"] = labels
+        predictions[f"{name}_ids"] = df[exp_cfg.data.id_column].to_numpy().astype(str)
+
     with open(out_path, "w") as f:
         json.dump(combined_json, f, indent=2, ensure_ascii=False)
+    np.savez(pred_path, **predictions)
 
 
 if __name__ == "__main__":

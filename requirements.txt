@@ -1,0 +1,6 @@
+torch==2.5.1
+torchmetrics==1.4.0.post0
+numpy==1.26.4
+pandas==2.3.2
+scikit-learn==1.7.1
+PyYAML==6.0.2
